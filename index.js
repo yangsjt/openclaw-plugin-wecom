@@ -38,18 +38,26 @@ const plugin = {
     api.registerChannel({ plugin: wecomChannelPlugin });
     logger.info("WeCom channel registered");
 
-    // Register webhook HTTP route with auth: "plugin" so gateway does NOT
-    // enforce Bearer-token auth. WeCom callbacks use msg_signature verification
-    // which the plugin handles internally.
-    // OpenClaw 3.2 removed registerHttpHandler; use registerHttpRoute with
-    // auth: "plugin" + match: "prefix" to handle all /webhooks/* paths.
-    api.registerHttpRoute({
-      path: "/webhooks",
-      handler: wecomHttpHandler,
-      auth: "plugin",
-      match: "prefix",
-    });
-    logger.info("WeCom HTTP route registered (auth: plugin, match: prefix)");
+    // Register webhook HTTP handler so gateway routes /webhooks/* to this plugin.
+    // WeCom callbacks use msg_signature verification, not Bearer-token auth.
+    //
+    // Strategy: register via both APIs for maximum compatibility.
+    // - registerHttpRoute (OpenClaw 3.2+): prefix match catches /webhooks/*.
+    // - registerHttpHandler (legacy): wildcard fallback if prefix match is
+    //   unsupported (gateway does exact-path matching on older versions).
+    if (typeof api.registerHttpRoute === "function") {
+      api.registerHttpRoute({
+        path: "/webhooks",
+        handler: wecomHttpHandler,
+        auth: "plugin",
+        match: "prefix",
+      });
+      logger.info("WeCom HTTP route registered (auth: plugin, match: prefix)");
+    }
+    if (typeof api.registerHttpHandler === "function") {
+      api.registerHttpHandler(wecomHttpHandler);
+      logger.info("WeCom HTTP handler registered (legacy fallback)");
+    }
   },
 };
 
