@@ -10,6 +10,7 @@
  */
 
 import { logger } from "../logger.js";
+import { tryExtractFileContent } from "./file-extractor.js";
 import { WecomCrypto } from "../crypto.js";
 import {
   generateAgentId,
@@ -261,8 +262,22 @@ async function processAgentMessage({
         mediaTypes.push(contentType);
         finalContent = `${content} (已下载 ${buffer.length} 字节)`;
 
+        // For file messages, attempt plugin-side text extraction (XLSX/CSV).
+        if (msgType === "file") {
+          const extractResult = await tryExtractFileContent(saved.path, originalFileName);
+          if (extractResult) {
+            mediaPaths.pop();
+            mediaTypes.pop();
+            const label = originalFileName ? `[文件: ${originalFileName}]` : "[文件]";
+            finalContent = content.trim()
+              ? `${content}\n\n${extractResult.fileBlock}`
+              : `[用户发送了文件] ${label}\n\n${extractResult.fileBlock}`;
+            logger.info("[agent-inbound] file content extracted in plugin", { name: originalFileName });
+          }
+        }
+
         // For image-only messages, set a placeholder body.
-        if (!content.trim() || content.startsWith("[图片]")) {
+        if (msgType !== "file" && (!content.trim() || content.startsWith("[图片]"))) {
           finalContent = "[用户发送了一张图片]";
         }
       } catch (err) {

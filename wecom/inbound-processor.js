@@ -15,6 +15,7 @@ import {
   isWecomAdmin,
 } from "./commands.js";
 import { THINKING_PLACEHOLDER } from "./constants.js";
+import { tryExtractFileContent } from "./file-extractor.js";
 import { downloadAndDecryptImage, downloadWecomFile, guessMimeType } from "./media.js";
 import { deliverWecomReply } from "./outbound-delivery.js";
 import {
@@ -380,12 +381,30 @@ export async function processInboundMessage({
         account.encodingAesKey,
         account.token,
       );
-      ctxBase.MediaPaths = [...(ctxBase.MediaPaths || []), localFilePath];
-      ctxBase.MediaTypes = [...(ctxBase.MediaTypes || []), guessMimeType(effectiveFileName)];
-      logger.info("File attachment prepared", { path: localFilePath, name: effectiveFileName });
+
+      // Attempt plugin-side text extraction for XLSX/CSV files.
+      // This bypasses the gateway's isBinaryMediaMime() filter that blocks
+      // application/vnd.* MIME types and its UTF-8-only CSV decoder.
+      const extractResult = await tryExtractFileContent(localFilePath, effectiveFileName);
+
+      if (extractResult) {
+        const label = fileName ? `[文件: ${fileName}]` : "[文件]";
+        if (!rawBody.trim()) {
+          ctxBase.Body = `[用户发送了文件] ${label}\n\n${extractResult.fileBlock}`;
+          ctxBase.RawBody = label;
+          ctxBase.CommandBody = "";
+        } else {
+          ctxBase.Body = (ctxBase.Body || body) + `\n\n${extractResult.fileBlock}`;
+        }
+        logger.info("File content extracted in plugin", { name: effectiveFileName });
+      } else {
+        // Fallback: pass through to gateway's file extraction pipeline.
+        ctxBase.MediaPaths = [...(ctxBase.MediaPaths || []), localFilePath];
+        ctxBase.MediaTypes = [...(ctxBase.MediaTypes || []), guessMimeType(effectiveFileName)];
+        logger.info("File attachment prepared (gateway pipeline)", { path: localFilePath, name: effectiveFileName });
+      }
     } catch (e) {
       logger.warn("File download failed", { error: e.message });
-      // Inform the agent about the file via text.
       const label = fileName ? `[文件: ${fileName}]` : "[文件]";
       if (!rawBody.trim()) {
         ctxBase.Body = `[用户发送了文件] ${label}`;

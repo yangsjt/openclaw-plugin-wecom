@@ -23,7 +23,9 @@
         "openclaw": "*"
     },
     "optionalDependencies": {
-        "undici": "^7.0.0"
+        "iconv-lite": "^0.7.2",
+        "undici": "^7.0.0",
+        "xlsx": "^0.18.5"
     },
     "scripts": {
         "test": "npm run test:unit",
